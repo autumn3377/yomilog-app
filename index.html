@@ -258,4 +258,45 @@ function renderBackup(){document.querySelectorAll('nav button').forEach(b=>b.cla
 let editing=null;const startAdd=add;add=function(){editing=null;startAdd()};function switchView(v){capturePractice();view=v;query='';phrase='';render()}document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{try{switchView(b.dataset.view)}catch(err){const el=document.querySelector('#app');if(el)el.innerHTML='<section class="card"><h2>画面の読み込みで問題が発生しました</h2><p>保存データは削除されていません。</p><pre style="white-space:pre-wrap">'+String(err?.message||err).replace(/</g,'&lt;')+'</pre></section>';}});form.onsubmit=e=>{e.preventDefault();const data=Object.fromEntries(new FormData(form)),previous=records;records=editing?records.map(r=>r.id===editing?{...r,...data}:r):[{...data,id:crypto.randomUUID(),done:false},...records];try{save();modal.close();render();toast('記録を保存しました。傾向も自動で更新します。')}catch{records=previous;toast('保存できません。ブラウザの保存設定を確認してください')}};
 function demo(){const samples=[['環境問題の長文','逆接の後の主張を読み飛ばした。逆接の前の文を根拠に選んだ。'],['働き方の長文','逆接で内容が変わるのに気づかなかった。'],['文化についての長文','主語を取り違えて、筆者と研究者の意見を逆に読んだ。']];records.push(...samples.map(([title,note])=>({id:crypto.randomUUID(),title,note,date:today,demo:true,done:false})));save();includeSamples=true;render();toast('サンプルを追加しました。統計では除外できます。')}try{render()}catch(err){const el=document.querySelector('#app');if(el)el.innerHTML='<section class="card"><h2>読み込みエラー</h2><pre style="white-space:pre-wrap">'+String(err?.message||err).replace(/</g,'&lt;')+'</pre></section>'}
 if(restoreRecovered)toast('中断された復元を検出し、復元前の記録に戻しました。');
+// ChatGPTから短い学習メモを受け取るリンク。保存は必ず本人が確認してから行う。
+function showChatMemoImport(){
+  const hash=location.hash||'';
+  if(!hash.startsWith('#ym-note='))return;
+  const raw=hash.slice('#ym-note='.length);
+  const panel=document.createElement('section');
+  panel.className='card';
+  panel.style.cssText='position:relative;border:2px solid #23694f;margin:16px 0;padding:18px';
+  const title=document.createElement('h2');title.textContent='ChatGPTからの学習メモを確認';panel.appendChild(title);
+  const detail=document.createElement('pre');detail.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;max-height:45vh;overflow:auto';panel.appendChild(detail);
+  const actions=document.createElement('div');actions.className='actions';panel.appendChild(actions);
+  const confirm=document.createElement('button');confirm.textContent='内容を確認して保存';confirm.className='primary';actions.appendChild(confirm);
+  const cancel=document.createElement('button');cancel.textContent='取り込まず閉じる';cancel.className='secondary';actions.appendChild(cancel);
+  const clear=()=>{history.replaceState(null,'',location.pathname+location.search);panel.remove()};
+  cancel.onclick=clear;
+  let memo=null;
+  try{
+    if(raw.length>14000)throw Error('リンクが長すぎます。短いメモのみ対応しています。');
+    const d=JSON.parse(decodeURIComponent(raw));
+    const field=(x,max)=>typeof x==='string'&&x.length<=max?x:null;
+    if(!d||d.version!==1||d.type!=='study-note')throw Error('対応していない記録形式です。');
+    const passageId=field(d.passageId,200),question=field(d.question,3000),summary=field(d.summary,7000),evidence=field(d.evidence||'',3000);
+    if(!passageId||!question||!summary)throw Error('長文ID・質問・要点が必要です。');
+    const passage=passageGroups().find(p=>p.id===passageId);
+    if(!passage)throw Error('対象の長文がヨミログに見つかりません。先にその長文を登録してください。');
+    memo={passageId,question,summary,evidence};
+    detail.textContent='長文：'+passage.title+'\n\n質問：'+question+'\n\nChatGPTの説明・要点：'+summary+'\n\n根拠候補：'+(evidence||'未記入')+'\n\n※ ChatGPTの説明です。自分の理解とは区別して保存します。';
+  }catch(e){detail.textContent='取り込みできません：'+e.message;confirm.disabled=true}
+  confirm.onclick=()=>{
+    if(!memo)return;
+    const id='dialogue-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
+    const note={...memo,id,turns:[{question:memo.question,explanation:memo.summary}],explanation:memo.summary,understanding:'',signal:'',unresolved:'',status:'open',updatedAt:new Date().toISOString()};
+    research.dialogueNotes=research.dialogueNotes||[];
+    research.dialogueNotes.push(note);
+    if(!persistResearch()){research.dialogueNotes.pop();return}
+    clear();selectedPassageId=memo.passageId;view='passages';render();toast('ChatGPTのメモを保存しました。自分の理解は後から記入できます。');
+  };
+  const root=document.querySelector('#app');if(root)root.prepend(panel);
+}
+showChatMemoImport();
+
 </script></html>
