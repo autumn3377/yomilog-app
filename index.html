@@ -266,7 +266,7 @@ function showChatMemoImport(){
   const panel=document.createElement('section');
   panel.className='card';
   panel.style.cssText='position:relative;border:2px solid #23694f;margin:16px 0;padding:18px';
-  const title=document.createElement('h2');title.textContent='ChatGPTからの学習メモを確認';panel.appendChild(title);
+  const title=document.createElement('h2');title.textContent='ChatGPTからの学習記録を確認';panel.appendChild(title);
   const detail=document.createElement('pre');detail.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;max-height:45vh;overflow:auto';panel.appendChild(detail);
   const actions=document.createElement('div');actions.className='actions';panel.appendChild(actions);
   const confirm=document.createElement('button');confirm.textContent='内容を確認して保存';confirm.className='primary';actions.appendChild(confirm);
@@ -275,25 +275,34 @@ function showChatMemoImport(){
   cancel.onclick=clear;
   let memo=null;
   try{
-    if(raw.length>14000)throw Error('リンクが長すぎます。短いメモのみ対応しています。');
+    if(raw.length>14000)throw Error('リンクが長すぎます。長い対話はJSONファイル取り込みをご利用ください。');
     const d=JSON.parse(decodeURIComponent(raw));
     const field=(x,max)=>typeof x==='string'&&x.length<=max?x:null;
-    if(!d||d.version!==1||d.type!=='study-note')throw Error('対応していない記録形式です。');
+    if(!d||![1,2].includes(d.version)||d.type!=='study-note')throw Error('対応していない記録形式です。');
     const passageId=field(d.passageId,200),question=field(d.question,3000),summary=field(d.summary,7000),evidence=field(d.evidence||'',3000);
     if(!passageId||!question||!summary)throw Error('長文ID・質問・要点が必要です。');
     const passage=passageGroups().find(p=>p.id===passageId);
     if(!passage)throw Error('対象の長文がヨミログに見つかりません。先にその長文を登録してください。');
-    memo={passageId,question,summary,evidence};
-    detail.textContent='長文：'+passage.title+'\n\n質問：'+question+'\n\nChatGPTの説明・要点：'+summary+'\n\n根拠候補：'+(evidence||'未記入')+'\n\n※ ChatGPTの説明です。自分の理解とは区別して保存します。';
+    let turns=[{question,explanation:summary}];
+    if(d.version===2){
+      if(!Array.isArray(d.turns)||!d.turns.length||d.turns.length>30)throw Error('対話履歴は1〜30往復にしてください。');
+      turns=d.turns.map((t,i)=>{
+        const q=field(t?.question,3000),e=field(t?.explanation,7000);
+        if(!q||!e)throw Error((i+1)+'番目の対話に不備があります。');
+        return {question:q,explanation:e};
+      });
+    }
+    memo={passageId,question,summary,evidence,turns};
+    detail.textContent='長文：'+passage.title+'\n\n最初の質問：'+question+'\n\n復習用の要点：'+summary+'\n\n根拠候補：'+(evidence||'未記入')+'\n\n対話履歴（'+turns.length+'往復）：\n'+turns.map((t,i)=>(i+1)+'．質問：'+t.question+'\n説明：'+t.explanation).join('\n\n')+'\n\n※ ChatGPTの説明です。自分の理解とは区別して保存します。';
   }catch(e){detail.textContent='取り込みできません：'+e.message;confirm.disabled=true}
   confirm.onclick=()=>{
     if(!memo)return;
     const id='dialogue-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
-    const note={...memo,id,turns:[{question:memo.question,explanation:memo.summary}],explanation:memo.summary,understanding:'',signal:'',unresolved:'',status:'open',updatedAt:new Date().toISOString()};
+    const note={...memo,id,explanation:memo.summary,understanding:'',signal:'',unresolved:'',status:'open',updatedAt:new Date().toISOString()};
     research.dialogueNotes=research.dialogueNotes||[];
     research.dialogueNotes.push(note);
     if(!persistResearch()){research.dialogueNotes.pop();return}
-    clear();selectedPassageId=memo.passageId;view='passages';render();toast('ChatGPTのメモを保存しました。自分の理解は後から記入できます。');
+    clear();selectedPassageId=memo.passageId;view='passages';render();toast('対話'+memo.turns.length+'往復と要点を保存しました。');
   };
   const root=document.querySelector('#app');if(root)root.prepend(panel);
 }
